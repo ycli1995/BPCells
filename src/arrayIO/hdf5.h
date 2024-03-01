@@ -13,34 +13,46 @@ namespace BPCells {
 template <class T> class H5NumWriter : public BulkNumWriter<T> {
   private:
     HighFive::DataSet dataset;
-    HighFive::DataType datatype = HighFive::create_datatype<T>();
+    HighFive::DataType datatype;
 
+    static HighFive::DataType createH5DataType() {
+      if (typeid(T) == typeid(uint64_t)) {
+        return HighFive::create_datatype<int64_t>();
+      }
+      return HighFive::create_datatype<T>();
+    }
+    
     static HighFive::DataSet createH5DataSet(
-        HighFive::Group group, std::string group_path, uint64_t chunk_size, uint32_t gzip_level
-    ) {
-        HighFive::SilenceHDF5 s;
-        // Create a dataspace with initial shape and max shape
-        HighFive::DataSpace dataspace({0}, {HighFive::DataSpace::UNLIMITED});
+        HighFive::Group group, std::string group_path, uint64_t chunk_size, uint32_t gzip_level)
+    {
+      HighFive::SilenceHDF5 s;
+      // Create a dataspace with initial shape and max shape
+      HighFive::DataSpace dataspace({0}, {HighFive::DataSpace::UNLIMITED});
 
-        // Use chunking
-        HighFive::DataSetCreateProps props;
-        props.add(HighFive::Chunking(std::vector<hsize_t>{chunk_size}));
-        if (gzip_level > 0) {
-            props.add(HighFive::Shuffle());
-            props.add(HighFive::Deflate(gzip_level));
-        }
+      // Use chunking
+      HighFive::DataSetCreateProps props;
+      props.add(HighFive::Chunking(std::vector<hsize_t>{chunk_size}));
+      if (gzip_level > 0)
+      {
+        props.add(HighFive::Shuffle());
+        props.add(HighFive::Deflate(gzip_level));
+      }
 
-        // At one point I considered using more aggressive chunk caching, but I
-        // don't think it's necessary anymore
-        // HighFive::DataSetAccessProps a_props;
-        // a_props.add(HighFive::Caching(521, 50<<20));// 50MB cache for overkill
+      // At one point I considered using more aggressive chunk caching, but I
+      // don't think it's necessary anymore
+      // HighFive::DataSetAccessProps a_props;
+      // a_props.add(HighFive::Caching(521, 50<<20));// 50MB cache for overkill
 
-        if (group.exist(group_path)) {
-            group.unlink(group_path);
-        }
+      if (group.exist(group_path))
+      {
+        group.unlink(group_path);
+      }
 
-        // Create the dataset
-        return group.createDataSet<T>(group_path, dataspace, props);
+      // Create the dataset
+      if (typeid(T) == typeid(uint64_t)) {
+        return group.createDataSet<int64_t>(group_path, dataspace, props);
+      }
+      return group.createDataSet<T>(group_path, dataspace, props);
     }
 
   public:
@@ -49,8 +61,10 @@ template <class T> class H5NumWriter : public BulkNumWriter<T> {
         std::string path,
         uint64_t chunk_size = 1024,
         uint32_t gzip_level = 0
-    )
-        : dataset(createH5DataSet(group, path, chunk_size, gzip_level)) {}
+    ): 
+    dataset(createH5DataSet(group, path, chunk_size, gzip_level)),
+    datatype(createH5DataType())
+    {}
 
     uint64_t write(T *in, uint64_t count) override {
         uint64_t cur_size = dataset.getDimensions()[0];
