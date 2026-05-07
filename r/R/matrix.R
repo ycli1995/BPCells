@@ -442,6 +442,92 @@ setMethod("%*%", signature(x = "dgCMatrix", y = "IterableMatrix"), function(x, y
 })
 
 
+# Element-wise matrix addition
+setClass("MatrixAddition",
+  contains = "IterableMatrix",
+  slots = c(
+    left = "IterableMatrix",
+    right = "IterableMatrix"
+  ),
+  prototype = list(
+    left = NULL,
+    right = NULL
+  )
+)
+setMethod("matrix_type", signature(x = "MatrixAddition"), function(x) matrix_type(x@left))
+setMethod("matrix_inputs", "MatrixAddition", function(x) list(x@left, x@right))
+setMethod("matrix_inputs<-", "MatrixAddition", function(x, ..., value) {
+  assert_is(value, "list")
+  assert_len(value, 2)
+  for (v in value) assert_is(v, "IterableMatrix")
+  x@left <- value[[1]]
+  x@right <- value[[2]]
+  x
+})
+
+setMethod("iterate_matrix", "MatrixAddition", function(x) {
+  iter_function <- get(sprintf("iterate_matrix_add_%s_cpp", matrix_type(x)))
+  iter_function(iterate_matrix(x@left), iterate_matrix(x@right))
+})
+
+setMethod("short_description", "MatrixAddition", function(x) {
+  sprintf(
+    "Add sparse matrices: %s (%dx%d) + %s (%dx%d)",
+    class(x@left), nrow(x@left), ncol(x@left),
+    class(x@right), nrow(x@right), ncol(x@right)
+  )
+})
+
+setMethod("+", signature(e1 = "IterableMatrix", e2 = "IterableMatrix"), function(e1, e2) {
+  if (e1@transpose != e2@transpose) stop("Cannot add matrices with different internal transpose states.\nPlease use transpose_storage_order().")
+  if (e1@transpose) {
+    return(t(t(e1) + t(e2)))
+  }
+
+  assert_true(nrow(e1) == nrow(e2) && ncol(e1) == ncol(e2))
+
+  # If types are mismatched, default to double precision for both
+  type_e1 <- matrix_type(e1)
+  type_e2 <- matrix_type(e2)
+  if (type_e1 != type_e2 && type_e1 != "double") e1 <- convert_matrix_type(e1, "double")
+  if (type_e1 != type_e2 && type_e2 != "double") e2 <- convert_matrix_type(e2, "double")
+
+  dim <- c(nrow(e1), ncol(e1))
+  dimnames <- list(
+    merge_dimnames(rownames(e1), rownames(e2), "+", "row"),
+    merge_dimnames(colnames(e1), colnames(e2), "+", "column")
+  )
+  new("MatrixAddition", left = e1, right = e2, transpose = FALSE, dim = dim, dimnames = dimnames)
+})
+
+# Element-wise matrix subtraction via MatrixAddition
+setMethod("-", signature(e1 = "IterableMatrix", e2 = "IterableMatrix"), function(e1, e2) {
+  e1 + (-1 * e2)
+})
+
+# Subsetting on MatrixAddition
+setMethod("[", "MatrixAddition", function(x, i, j, ...) {
+  if (missing(x)) stop("x is missing in matrix selection")
+  # Handle transpose via recursive call
+  if (x@transpose) {
+    return(t(t(x)[rlang::maybe_missing(j), rlang::maybe_missing(i)]))
+  }
+
+  i <- split_selection_index(i, nrow(x), rownames(x))
+  j <- split_selection_index(j, ncol(x), colnames(x))
+  # If we're just reordering rows/cols, do a standard matrix selection
+  if (rlang::is_missing(i$subset) && rlang::is_missing(j$subset)) {
+    return(callNextMethod(x, unsplit_selection(i), unsplit_selection(j)))
+  }
+  x <- selection_fix_dims(x, rlang::maybe_missing(i$subset), rlang::maybe_missing(j$subset))
+
+  # Selection will be a no-op if i or j is missing
+  x@left <- x@left[rlang::maybe_missing(i$subset), rlang::maybe_missing(j$subset)]
+  x@right <- x@right[rlang::maybe_missing(i$subset), rlang::maybe_missing(j$subset)]
+
+  x[rlang::maybe_missing(i$reorder), rlang::maybe_missing(j$reorder)]
+})
+
 # Subsetting on MatrixMultiply
 setMethod("[", "MatrixMultiply", function(x, i, j, ...) {
   if (missing(x)) stop("x is missing in matrix selection")

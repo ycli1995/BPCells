@@ -727,7 +727,8 @@ setMethod("*", signature(e1 = "numeric", e2 = "IterableMatrix"), function(e1, e2
   e2 <- wrapMatrix("TransformScaleShift", convert_matrix_type(e2, "double"))
   e2 * e1
 })
-#' @describeIn IterableMatrix-methods Add a constant, or row-wise addition with a vector length nrow(mat)
+#' @describeIn IterableMatrix-methods Add a constant, row-wise addition with a vector length nrow(mat),
+#'   or element-wise addition of two IterableMatrix objects
 #' @examples
 #' #######################################################################
 #' ## `e1 + e2` example
@@ -738,7 +739,9 @@ setMethod("*", signature(e1 = "numeric", e2 = "IterableMatrix"), function(e1, e2
 #' ## Adding row-wise by a vector of length `nrow(mat)`
 #' mat + 1:nrow(mat)
 #' 
-#' 
+#' ## Element-wise addition of two IterableMatrix objects
+#' mat + (mat * 2)
+#'
 setMethod("+", signature(e1 = "IterableMatrix", e2 = "numeric"), function(e1, e2) {
   if (all(e2 == 0)) return(e1)
   e1 <- wrapMatrix("TransformScaleShift", convert_matrix_type(e1, "double"))
@@ -749,6 +752,7 @@ setMethod("+", signature(e1 = "numeric", e2 = "IterableMatrix"), function(e1, e2
   e2 <- wrapMatrix("TransformScaleShift", convert_matrix_type(e2, "double"))
   e2 + e1
 })
+# Note: setMethod("+", IterableMatrix, IterableMatrix) lives in matrix.R, alongside the MatrixAddition class definition.
 # Note: we skip numeric / IterableMatrix as it would result in a lot of infinities for dividing by 0.
 #' @describeIn IterableMatrix-methods Divide by a constant, or divide rows by a vector length nrow(mat)
 #' @examples

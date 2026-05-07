@@ -8,7 +8,7 @@
 
 generate_sparse_matrix <- function(nrow, ncol, fraction_nonzero = 0.5, max_val = 10) {
   m <- matrix(rbinom(nrow * ncol, 1, fraction_nonzero) * sample.int(max_val, nrow * ncol, replace = TRUE), nrow = nrow)
-  as(m, "dgCMatrix")
+  as(Matrix::Matrix(m, sparse = TRUE), "dgCMatrix")
 }
 
 test_that("Subsetting transform works", {
@@ -346,4 +346,75 @@ test_that("linear regression works", {
     m1t <- regress_out(mt, latent_data = latent_data, prediction_axis = "col")
     expect_equal(as(m1, "matrix"), ans)
     expect_equal(as(m1t, "matrix"), ans)
+})
+
+test_that("matrix addition works", {
+    set.seed(125124)
+    m1 <- generate_sparse_matrix(20, 10, max_val=1e5)
+    m2 <- generate_sparse_matrix(20, 10, max_val=1e5)
+
+    bp1 <- as(m1, "IterableMatrix")
+    bp2 <- as(m2, "IterableMatrix")
+
+    # Basic addition
+    expect_equal(as(bp1 + bp2, "dgCMatrix"), m1 + m2)
+
+    # Type coercion: mismatched types promote to double
+    bp1_uint <- convert_matrix_type(bp1, "uint32_t")
+    bp2_double <- convert_matrix_type(bp2, "double")
+    res <- bp1_uint + bp2_double
+    expect_identical(matrix_type(res), "double")
+    expect_equal(as(res, "dgCMatrix"), m1 + m2)
+
+    # Transpose: both sides transposed
+    bp1_t <- t(as(t(m1), "IterableMatrix"))
+    bp2_t <- t(as(t(m2), "IterableMatrix"))
+    expect_equal(as(bp1_t + bp2_t, "dgCMatrix"), m1 + m2)
+
+    # Dimnames preserved
+    rownames(m1) <- paste0("row", seq_len(nrow(m1)))
+    colnames(m1) <- paste0("col", seq_len(ncol(m1)))
+    bp1_named <- as(m1, "IterableMatrix")
+    bp2_unnamed <- as(m2, "IterableMatrix")
+    res_named <- bp1_named + bp2_unnamed
+    expect_identical(rownames(res_named), rownames(m1))
+    expect_identical(colnames(res_named), colnames(m1))
+
+    # Dimension mismatch errors
+    m3 <- generate_sparse_matrix(20, 11)
+    expect_error(bp1 + as(m3, "IterableMatrix"))
+
+    # Zero cancellation: A + (A * -1) emits no explicit zeros
+    bp1_d <- convert_matrix_type(bp1, "double")
+    neg1 <- bp1_d * -1
+    res_cancel <- bp1_d + neg1
+    mat_cancel <- as(res_cancel, "dgCMatrix")
+    expect_equal(Matrix::nnzero(mat_cancel), 0)
+    expect_equal(dim(mat_cancel), dim(m1))
+
+    # Unsorted inputs: OrderRows sorts
+    perm <- rev(seq_len(nrow(m1)))
+    res_perm <- bp1[perm, ] + bp2[perm, ]
+    expect_equal(as(res_perm, "dgCMatrix"), unname((m1 + m2)[perm, ]))
+})
+
+test_that("matrix subtraction works", {
+    set.seed(125124)
+    m1 <- generate_sparse_matrix(20, 10, max_val=1e5)
+    m2 <- generate_sparse_matrix(20, 10, max_val=1e5)
+
+    bp1 <- as(m1, "IterableMatrix")
+    bp2 <- as(m2, "IterableMatrix")
+
+    # Basic subtraction
+    expect_equal(as(bp1 - bp2, "dgCMatrix"), m1 - m2)
+
+    # Zero cancellation: A - A emits no explicit zeros
+    res_self <- as(bp1 - bp1, "dgCMatrix")
+    expect_equal(Matrix::nnzero(res_self), 0)
+    expect_equal(dim(res_self), dim(m1))
+
+    # Transpose: mismatch errors
+    bp1_t <- t(as(t(m1), "IterableMatrix"))
+    expect_error(bp1 - bp1_t)
 })
